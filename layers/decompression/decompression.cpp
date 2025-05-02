@@ -456,7 +456,7 @@ VkResult DeviceData::CreatePipelineState(VkDevice* pDevice, VkPhysicalDevice phy
     devFeatures.pNext = &subgroupFeatures;
     GetPhysicalDeviceFeatures2(physicalDevice, &devFeatures);
 
-    uint32_t subgroupSize = 16;
+    uint32_t subgroupSize = 8;
     if (!subgroupFeatures.subgroupSizeControl || subgroupsizeProps.minSubgroupSize < 16) {
         // If we do not have size control extension, or width < 16
         // Force a shader variant with full syncronization.
