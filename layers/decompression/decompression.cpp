@@ -483,6 +483,7 @@ VkResult DeviceData::CreatePipelineState(VkDevice* pDevice, VkPhysicalDevice phy
 	    subgroupSize = subgroupsizeProps.minSubgroupSize;
 	}
     }
+    subgroupSize = 16;
 
     PRINT("Info: subgroupSize %u\n", subgroupSize);
 
@@ -577,7 +578,7 @@ VkResult DeviceData::CreatePipelineState(VkDevice* pDevice, VkPhysicalDevice phy
     VkShaderModule indirectDecompressShaderModule;
 
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo rss_info = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO};
-    rss_info.requiredSubgroupSize = subgroupSize;
+    rss_info.requiredSubgroupSize = 32;//subgroupSize;
 
     // Create Decompression shader pipeline
     ByteCode bytecode = kGInflateBytecode[bytecodeIndex];
