@@ -212,9 +212,65 @@ VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceProperties2(VkPhysicalDevice physica
     if (instance_data->vtable.GetPhysicalDeviceProperties2 != nullptr) {
         instance_data->vtable.GetPhysicalDeviceProperties2(physicalDevice, pProperties);
     }
+
+    auto subject = pProperties;
+    while(subject) {
+        if (subject->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_DECOMPRESSION_PROPERTIES_NV) {
+            auto as_decompressionProperties =
+                reinterpret_cast<VkPhysicalDeviceMemoryDecompressionPropertiesNV*>(subject);
+            if (as_decompressionProperties->decompressionMethods == 0) {
+                // no decompression methods supported by driver; layer wil use GDeflate
+                as_decompressionProperties->decompressionMethods = VK_MEMORY_DECOMPRESSION_METHOD_GDEFLATE_1_0_BIT_NV;
+                // disallow indirect decompression because we don't know what the underlying device will accept
+                as_decompressionProperties->maxDecompressionIndirectCount = 0;
+            }
+            break;
+        }
+        subject = static_cast<VkPhysicalDeviceProperties2*>(subject->pNext);
+    }
 }
 
 VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceFeatures2(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures2* pFeatures) {
+    auto instance_data = GetInstanceData(physicalDevice);
+    auto pdd = instance_data->GetPhysicalDeviceData(physicalDevice);
+
+    if (instance_data->vtable.GetPhysicalDeviceFeatures2 != nullptr) {
+        instance_data->vtable.GetPhysicalDeviceFeatures2(physicalDevice, pFeatures);
+    }
+
+    auto subject = pFeatures;
+    while(subject) {
+        if (subject->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_DECOMPRESSION_FEATURES_NV) {
+            auto as_decompressionFeatures =
+                reinterpret_cast<VkPhysicalDeviceMemoryDecompressionFeaturesNV*>(subject);
+            // we're guaranteed support; either through th driver or layer supports this extension.
+            as_decompressionFeatures->memoryDecompression = VK_TRUE;
+            break;
+        }
+        subject = static_cast<VkPhysicalDeviceFeatures2*>(subject->pNext);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceProperties2KHR(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2* pProperties) {
+    GetPhysicalDeviceProperties2(physicalDevice, pProperties);
+}
+
+VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceFeatures2KHR(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures2* pFeatures) {
+    GetPhysicalDeviceFeatures2(physicalDevice, pFeatures);
+}
+
+void GetPhysicalDeviceProperties2Internal(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties2* pProperties) {
+    /* query properties from the underlying Vulkan implementation */
+    auto instance_data = GetInstanceData(physicalDevice);
+    auto pdd = instance_data->GetPhysicalDeviceData(physicalDevice);
+
+    if (instance_data->vtable.GetPhysicalDeviceProperties2 != nullptr) {
+        instance_data->vtable.GetPhysicalDeviceProperties2(physicalDevice, pProperties);
+    }
+}
+
+void GetPhysicalDeviceFeatures2Internal(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures2* pFeatures) {
+    /* query features from the underlying Vulkan implementation */
     auto instance_data = GetInstanceData(physicalDevice);
     auto pdd = instance_data->GetPhysicalDeviceData(physicalDevice);
 
@@ -235,6 +291,8 @@ InstanceData::InstanceData(VkInstance inst, PFN_vkGetInstanceProcAddr gpa, const
     INIT_HOOK(vtable, instance, EnumerateInstanceExtensionProperties);
     INIT_HOOK(vtable, instance, GetPhysicalDeviceProperties2);
     INIT_HOOK(vtable, instance, GetPhysicalDeviceFeatures2);
+    INIT_HOOK(vtable, instance, GetPhysicalDeviceProperties2KHR);
+    INIT_HOOK(vtable, instance, GetPhysicalDeviceFeatures2KHR);
     INIT_HOOK(vtable, instance, GetPhysicalDeviceProperties);
     INIT_HOOK(vtable, instance, GetPhysicalDeviceMemoryProperties);
 }
@@ -448,13 +506,13 @@ VkResult DeviceData::CreatePipelineState(VkDevice* pDevice, VkPhysicalDevice phy
     VkPhysicalDeviceSubgroupSizeControlProperties subgroupsizeProps = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
     props.pNext = &subgroupsizeProps;
-    GetPhysicalDeviceProperties2(physicalDevice, &props);
+    GetPhysicalDeviceProperties2Internal(physicalDevice, &props);
 
     VkPhysicalDeviceFeatures2 devFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     VkPhysicalDeviceSubgroupSizeControlFeatures subgroupFeatures = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES};
     devFeatures.pNext = &subgroupFeatures;
-    GetPhysicalDeviceFeatures2(physicalDevice, &devFeatures);
+    GetPhysicalDeviceFeatures2Internal(physicalDevice, &devFeatures);
 
     uint32_t subgroupSize = 32;
     if (!subgroupFeatures.subgroupSizeControl || subgroupsizeProps.minSubgroupSize < 16) {
@@ -711,12 +769,12 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice physicalDevice, con
     VkPhysicalDeviceVulkan12Features vulkan12Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     decompressionFeature.pNext = &vulkan12Features;
     devFeatures.pNext = &decompressionFeature;
-    GetPhysicalDeviceFeatures2(physicalDevice, &devFeatures);
+    GetPhysicalDeviceFeatures2Internal(physicalDevice, &devFeatures);
 
     VkPhysicalDeviceProperties2 props = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceSubgroupProperties subgroupProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     props.pNext = &subgroupProps;
-    GetPhysicalDeviceProperties2(physicalDevice, &props);
+    GetPhysicalDeviceProperties2Internal(physicalDevice, &props);
 
     const bool computeStageSupport = (subgroupProps.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT);
     const bool subgroupBasicSupport = subgroupProps.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT;
@@ -931,6 +989,8 @@ static const std::unordered_map<std::string, PFN_vkVoidFunction> kInstanceFuncti
     ADD_HOOK(CreateDevice),
     ADD_HOOK(GetPhysicalDeviceProperties2),
     ADD_HOOK(GetPhysicalDeviceFeatures2),
+    ADD_HOOK(GetPhysicalDeviceProperties2KHR),
+    ADD_HOOK(GetPhysicalDeviceFeatures2KHR),
 };
 
 static const std::unordered_map<std::string, PFN_vkVoidFunction> kDeviceFunctions = {
